@@ -17,7 +17,7 @@
 	<description>Demo project for Oauth Client</description>
 
 	<scm>
-		<developerConnection>scm:git:vnenashev@github.com:vnenashev/oauth-demo-client.git</developerConnection>
+		<developerConnection>scm:git:git@github.com:vnenashev/oauth-demo-client.git</developerConnection>
 	</scm>
 
 	<properties>
