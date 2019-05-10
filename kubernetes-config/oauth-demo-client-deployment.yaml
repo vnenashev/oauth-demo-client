@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: oauth-demo-client
+  name: oauth-demo-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth-demo-client
+  template:
+    metadata:
+      labels:
+        app: oauth-demo-client
+    spec:
+      containers:
+        - name: oauth-demo-client
+          image: vnenashev/oauth-demo-client:0.0.3
+          ports:
+            - containerPort: 8081
+              protocol: TCP
