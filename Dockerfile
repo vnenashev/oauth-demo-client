@@ -2,7 +2,7 @@
 # Build stage
 #
 FROM maven:3.6.1-jdk-8-slim AS build
-COPY pom.xml /app
+COPY pom.xml /app/
 RUN mvn -f /app/pom.xml dependency:go-offline
 COPY src /app/src
 RUN mvn -f /app/pom.xml clean package
