@@ -22,3 +22,14 @@ spec:
             backend:
               serviceName: oauth-demo-client
               servicePort: 8081
+    - host: oauth-demo-client.vladimir-nenashev.net
+      http:
+        paths:
+            - path: /*
+              backend:
+                serviceName: ssl-redirect
+                servicePort: use-annotation
+              - path: /*
+                backend:
+                  serviceName: oauth-demo-auth-server
+                  servicePort: 8081
