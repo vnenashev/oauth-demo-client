@@ -22,7 +22,7 @@ spec:
             backend:
               serviceName: oauth-demo-client
               servicePort: 8081
-    - host: oauth-demo-client.vladimir-nenashev.net
+    - host: oauth-demo-auth-server.vladimir-nenashev.net
       http:
         paths:
             - path: /*
