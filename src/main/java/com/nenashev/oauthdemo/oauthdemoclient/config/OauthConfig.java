@@ -17,6 +17,8 @@ public class OauthConfig {
     private String authServerAuthorizationEndpoint;
     private String authServerTokenEndpoint;
 
+    private String resourceUrl;
+
     public String getClientId() {
         return clientId;
     }
@@ -57,6 +59,14 @@ public class OauthConfig {
         this.authServerTokenEndpoint = authServerTokenEndpoint;
     }
 
+    public String getResourceUrl() {
+        return resourceUrl;
+    }
+
+    public void setResourceUrl(final String resourceUrl) {
+        this.resourceUrl = resourceUrl;
+    }
+
     @Override
     public String toString() {
         return "OauthConfig{" +
@@ -65,6 +75,7 @@ public class OauthConfig {
             ", redirectUris=" + redirectUris +
             ", authServerAuthorizationEndpoint='" + authServerAuthorizationEndpoint + '\'' +
             ", authServerTokenEndpoint='" + authServerTokenEndpoint + '\'' +
+            ", resourceUrl='" + resourceUrl + '\'' +
             '}';
     }
 }
