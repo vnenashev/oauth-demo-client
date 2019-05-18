@@ -25,11 +25,11 @@ spec:
     - host: oauth-demo-auth-server.vladimir-nenashev.net
       http:
         paths:
-            - path: /*
-              backend:
-                serviceName: ssl-redirect
-                servicePort: use-annotation
-              - path: /*
-                backend:
-                  serviceName: oauth-demo-auth-server
-                  servicePort: 8081
+          - path: /*
+            backend:
+              serviceName: ssl-redirect
+              servicePort: use-annotation
+          - path: /*
+            backend:
+              serviceName: oauth-demo-auth-server
+              servicePort: 8081
