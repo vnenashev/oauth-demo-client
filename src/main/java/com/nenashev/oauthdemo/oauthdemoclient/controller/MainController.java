@@ -83,11 +83,13 @@ public class MainController {
 
         final byte[] stateBytes = new byte[64];
         secureRandom.nextBytes(stateBytes);
-        state.set(new String(encoder.encode(stateBytes), StandardCharsets.UTF_8));
+        final String newState = new String(encoder.encode(stateBytes), StandardCharsets.UTF_8);
+        state.set(newState);
 
         redirectUriBuilder.queryParam("response_type", "code");
         redirectUriBuilder.queryParam("client_id", oauthConfig.getClientId());
         redirectUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
+        redirectUriBuilder.queryParam("state", newState);
         redirectUriBuilder.queryParam("scope", String.join(" ", scope));
 
         final UriComponents redirectUri = redirectUriBuilder.encode().build();
