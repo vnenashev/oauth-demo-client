@@ -72,7 +72,7 @@ public class MainController {
     @GetMapping(path = "/")
     public String index(final ModelMap modelMap) {
         modelMap.addAttribute("accessToken", accessToken.get());
-        modelMap.addAttribute("scope", scope);
+        modelMap.addAttribute("scope", String.join(", ", scope));
         return "index";
     }
 
