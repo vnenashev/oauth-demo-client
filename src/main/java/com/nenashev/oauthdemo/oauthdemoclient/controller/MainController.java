@@ -88,7 +88,7 @@ public class MainController {
         redirectUriBuilder.queryParam("response_type", "code");
         redirectUriBuilder.queryParam("client_id", oauthConfig.getClientId());
         redirectUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
-        redirectUriBuilder.queryParam("scope", scope);
+        redirectUriBuilder.queryParam("scope", String.join(" ", scope));
 
         final UriComponents redirectUri = redirectUriBuilder.encode().build();
         return "redirect:" + redirectUri.toUriString();
