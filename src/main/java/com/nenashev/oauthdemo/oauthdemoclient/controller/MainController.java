@@ -121,8 +121,13 @@ public class MainController {
         final List<NameValuePair> httpFormParams = new ArrayList<>(3);
         httpFormParams.add(new BasicNameValuePair("grant_type", "authorization_code"));
         httpFormParams.add(new BasicNameValuePair("code", params.get("code")));
-        httpFormParams.add(new BasicNameValuePair("redirect_uri",
-            oauthConfig.getRedirectUris().get(0)));
+        if (!params.containsKey("redirect_to_resource")) {
+            httpFormParams.add(new BasicNameValuePair("redirect_uri",
+                oauthConfig.getRedirectUris().get(0)));
+        } else {
+            httpFormParams.add(new BasicNameValuePair("redirect_uri",
+                oauthConfig.getRedirectUris().get(1)));
+        }
         final HttpEntity httpEntity = new UrlEncodedFormEntity(httpFormParams, StandardCharsets.UTF_8);
         tokenRequest.setEntity(httpEntity);
 
