@@ -78,7 +78,7 @@ public class MainController {
 
     @GetMapping(path = "/authorize")
     public String authorize() {
-        final UriComponentsBuilder redirectUriBuilder =
+        final UriComponentsBuilder authEndpointUriBuilder =
             UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
 
         final byte[] stateBytes = new byte[64];
@@ -86,13 +86,13 @@ public class MainController {
         final String newState = new String(encoder.encode(stateBytes), StandardCharsets.UTF_8);
         state.set(newState);
 
-        redirectUriBuilder.queryParam("response_type", "code");
-        redirectUriBuilder.queryParam("client_id", oauthConfig.getClientId());
-        redirectUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
-        redirectUriBuilder.queryParam("state", newState);
-        redirectUriBuilder.queryParam("scope", String.join(" ", scope));
+        authEndpointUriBuilder.queryParam("response_type", "code");
+        authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
+        authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
+        authEndpointUriBuilder.queryParam("state", newState);
+        authEndpointUriBuilder.queryParam("scope", String.join(" ", scope));
 
-        final UriComponents redirectUri = redirectUriBuilder.encode().build();
+        final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
         return "redirect:" + redirectUri.toUriString();
     }
 
@@ -135,6 +135,12 @@ public class MainController {
                 final String responseAccessToken = (String) responseJson.get("access_token");
                 accessToken.set(responseAccessToken);
                 logger.info("Got access token {}", responseAccessToken);
+
+                if (params.containsKey("redirect_to_resource")) {
+                    logger.info("Redirecting to /fetch_resource");
+                    return "redirect:/fetch_resource";
+                }
+
                 modelMap.addAttribute("accessToken", responseAccessToken);
                 modelMap.addAttribute("scope", String.join(" ", scope));
                 return "index";
@@ -152,10 +158,28 @@ public class MainController {
 
     @GetMapping(path = "/fetch_resource")
     public String fetchResource(final ModelMap modelMap) {
+        logger.info("Received GET /fetch_resource");
         final String accessToken = this.accessToken.get();
         if (!StringUtils.hasText(accessToken)) {
-            modelMap.addAttribute("error", "Missing access token");
-            return "error";
+            //no access token, redirect to obtain
+            logger.info("No access token found, redirecting to authorization server to obtain...");
+            final UriComponentsBuilder authEndpointUriBuilder =
+                UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
+
+            final byte[] stateBytes = new byte[64];
+            secureRandom.nextBytes(stateBytes);
+            final String newState = new String(encoder.encode(stateBytes), StandardCharsets.UTF_8);
+            state.set(newState);
+
+            authEndpointUriBuilder.queryParam("response_type", "code");
+            authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
+            authEndpointUriBuilder.queryParam("redirect_uri",
+                oauthConfig.getRedirectUris().get(1));
+            authEndpointUriBuilder.queryParam("state", newState);
+            authEndpointUriBuilder.queryParam("scope", String.join(" ", scope));
+
+            final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
+            return "redirect:" + redirectUri.toUriString();
         }
         logger.info("Making request with access token {}", accessToken);
 
