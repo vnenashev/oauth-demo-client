@@ -136,7 +136,7 @@ public class MainController {
                 accessToken.set(responseAccessToken);
                 logger.info("Got access token {}", responseAccessToken);
                 modelMap.addAttribute("accessToken", responseAccessToken);
-                modelMap.addAttribute("scope", scope);
+                modelMap.addAttribute("scope", String.join(" ", scope));
                 return "index";
             } else {
                 modelMap.addAttribute("error", "Unable to fetch access token," +
