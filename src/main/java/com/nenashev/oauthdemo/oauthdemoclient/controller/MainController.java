@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -56,6 +57,8 @@ public class MainController {
     private final Set<String> scope = ConcurrentHashMap.newKeySet();
     private final AtomicReference<String> state = new AtomicReference<>(null);
     private final AtomicReference<String> accessToken = new AtomicReference<>(null);
+    private final AtomicReference<String> refreshToken = new AtomicReference<>(null);
+    private final AtomicReference<Instant> tokenExpireTimestamp = new AtomicReference<>(null);
 
     public MainController(final OauthConfig oauthConfig,
                           final SecureRandom secureRandom,
@@ -73,6 +76,7 @@ public class MainController {
     public String index(final ModelMap modelMap) {
         modelMap.addAttribute("accessToken", accessToken.get());
         modelMap.addAttribute("scope", String.join(", ", scope));
+        modelMap.addAttribute("refreshToken", refreshToken.get());
         return "index";
     }
 
@@ -81,9 +85,7 @@ public class MainController {
         final UriComponentsBuilder authEndpointUriBuilder =
             UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
 
-        final byte[] stateBytes = new byte[64];
-        secureRandom.nextBytes(stateBytes);
-        final String newState = new String(encoder.encode(stateBytes), StandardCharsets.UTF_8);
+        final String newState = generateRandomString(64);
         state.set(newState);
 
         authEndpointUriBuilder.queryParam("response_type", "code");
@@ -138,7 +140,11 @@ public class MainController {
                 final Map<String, Object> responseJson =
                     objectMapper.readValue(responseInputStream, MAP_TYPE_REFERENCE);
                 final String responseAccessToken = (String) responseJson.get("access_token");
+                final String responseRefreshToken = (String) responseJson.get("refresh_token");
+                final int expireInSeconds = ((Number) responseJson.get("expires_in")).intValue();
+                tokenExpireTimestamp.set(Instant.now().plusSeconds(expireInSeconds));
                 accessToken.set(responseAccessToken);
+                refreshToken.set(responseRefreshToken);
                 logger.info("Got access token {}", responseAccessToken);
 
                 if (params.containsKey("redirect_to_resource")) {
@@ -148,6 +154,7 @@ public class MainController {
 
                 modelMap.addAttribute("accessToken", responseAccessToken);
                 modelMap.addAttribute("scope", String.join(" ", scope));
+                modelMap.addAttribute("refreshToken", refreshToken.get());
                 return "index";
             } else {
                 modelMap.addAttribute("error", "Unable to fetch access token," +
@@ -171,9 +178,7 @@ public class MainController {
             final UriComponentsBuilder authEndpointUriBuilder =
                 UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
 
-            final byte[] stateBytes = new byte[64];
-            secureRandom.nextBytes(stateBytes);
-            final String newState = new String(encoder.encode(stateBytes), StandardCharsets.UTF_8);
+            final String newState = generateRandomString(64);
             state.set(newState);
 
             authEndpointUriBuilder.queryParam("response_type", "code");
@@ -185,6 +190,10 @@ public class MainController {
 
             final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
             return "redirect:" + redirectUri.toUriString();
+        } else if (tokenExpireTimestamp.get() != null && tokenExpireTimestamp.get().isBefore(Instant.now())) {
+            this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
+            return requestRefreshToken(modelMap);
         }
         logger.info("Making request with access token {}", accessToken);
 
@@ -204,9 +213,13 @@ public class MainController {
                 return "data";
             } else {
                 this.accessToken.set(null);
-                modelMap.addAttribute("error", "Unable to fetch resource," +
-                    " server response: " + responseStatus);
-                return "error";
+                if (this.refreshToken.get() != null) {
+                    return requestRefreshToken(modelMap);
+                } else {
+                    modelMap.addAttribute("error", "Unable to fetch resource," +
+                        " server response: " + responseStatus);
+                    return "error";
+                }
             }
         } catch (final IOException e) {
             this.accessToken.set(null);
@@ -214,5 +227,51 @@ public class MainController {
             modelMap.addAttribute("error", e.getMessage());
             return "error";
         }
+    }
+
+    private String requestRefreshToken(final ModelMap modelMap) {
+        final HttpPost tokenRequest = new HttpPost(oauthConfig.getAuthServerTokenEndpoint());
+        tokenRequest.setHeader("Content-Type", MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+        final byte[] authBytes = (oauthConfig.getClientId() + ":" + oauthConfig.getClientSecret())
+            .getBytes(StandardCharsets.UTF_8);
+        tokenRequest.setHeader("Authorization", "Basic " + encoder.encodeToString(authBytes));
+        final List<NameValuePair> httpFormParams = new ArrayList<>(2);
+        httpFormParams.add(new BasicNameValuePair("grant_type", "refresh_token"));
+        httpFormParams.add(new BasicNameValuePair("refresh_token", refreshToken.get()));
+        final HttpEntity httpEntity = new UrlEncodedFormEntity(httpFormParams, StandardCharsets.UTF_8);
+        tokenRequest.setEntity(httpEntity);
+
+        try (final CloseableHttpResponse response = httpClient.execute(tokenRequest);
+             final InputStream responseInputStream = response.getEntity().getContent()) {
+            final int responseStatus = response.getStatusLine().getStatusCode();
+            if (responseStatus >= 200 && responseStatus < 300) {
+                final Map<String, Object> responseJson =
+                    objectMapper.readValue(responseInputStream, MAP_TYPE_REFERENCE);
+                final String responseAccessToken = (String) responseJson.get("access_token");
+                final String responseRefreshToken = (String) responseJson.get("refresh_token");
+                final int expireInSeconds = ((Number) responseJson.get("expires_in")).intValue();
+                tokenExpireTimestamp.set(Instant.now().plusSeconds(expireInSeconds));
+                accessToken.set(responseAccessToken);
+                this.refreshToken.set(responseRefreshToken);
+                logger.info("Got access token {}", responseAccessToken);
+
+                return "redirect:/fetch_resource";
+            } else {
+                modelMap.addAttribute("error",
+                    "No refresh token, asking user to get a new access token");
+                this.refreshToken.set(null);
+                return "error";
+            }
+        } catch (final IOException e) {
+            logger.error("Exception caught:", e);
+            modelMap.addAttribute("error", e.getMessage());
+            return "error";
+        }
+    }
+
+    private String generateRandomString(final int bytesLength) {
+        final byte[] bytes = new byte[bytesLength];
+        secureRandom.nextBytes(bytes);
+        return new String(encoder.encode(bytes), StandardCharsets.UTF_8);
     }
 }
