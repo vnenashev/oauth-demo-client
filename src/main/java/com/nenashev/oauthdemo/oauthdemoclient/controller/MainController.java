@@ -26,6 +26,7 @@ import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.message.BasicNameValuePair;
@@ -214,7 +215,7 @@ public class MainController {
         }
         logger.info("Making request with access token {}", accessToken);
 
-        final HttpPost resourceRequest = new HttpPost(oauthConfig.getResourceUrl());
+        final HttpGet resourceRequest = new HttpGet(oauthConfig.getResourceUrl());
         resourceRequest.setHeader("Authorization", "Bearer " + accessToken);
 
         try (final CloseableHttpResponse response = httpClient.execute(resourceRequest);
