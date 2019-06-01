@@ -11,7 +11,7 @@
 
   <groupId>com.nenashev.oauth-demo</groupId>
   <artifactId>oauth-demo-client</artifactId>
-  <version>0.2.1-SNAPSHOT</version>
+  <version>0.3.0-SNAPSHOT</version>
   <name>oauth-demo-client</name>
   <description>Demo project for Oauth Client</description>
 

@@ -41,7 +41,7 @@
 		  <p>Scope value: <span class="label label-danger">${scope!"NONE"}</span></p>
           <p>Refresh token value: <span class="label label-danger">${refreshToken!"NONE"}</span></p>
 		  <a class="btn btn-default" href="/authorize">Get OAuth Token</a> 
-		  <a class="btn btn-default" href="/fetch_resource">Get Protected Resource</a> 
+		  <a class="btn btn-default" href="/words">Get Protected Resource</a>
       </div>
 
     </div><!-- /.container -->

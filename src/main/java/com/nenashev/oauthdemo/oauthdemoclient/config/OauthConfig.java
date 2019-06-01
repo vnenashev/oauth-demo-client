@@ -1,7 +1,9 @@
 package com.nenashev.oauthdemo.oauthdemoclient.config;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -13,6 +15,7 @@ public class OauthConfig {
     private String clientId;
     private String clientSecret;
     private List<String> redirectUris = new ArrayList<>();
+    private Set<String> scope = new LinkedHashSet<>();
 
     private String authServerAuthorizationEndpoint;
     private String authServerTokenEndpoint;
@@ -41,6 +44,14 @@ public class OauthConfig {
 
     public void setRedirectUris(final List<String> redirectUris) {
         this.redirectUris = redirectUris;
+    }
+
+    public Set<String> getScope() {
+        return scope;
+    }
+
+    public void setScope(final Set<String> scope) {
+        this.scope = scope;
     }
 
     public String getAuthServerAuthorizationEndpoint() {
@@ -73,6 +84,7 @@ public class OauthConfig {
             "clientId='" + clientId + '\'' +
             ", clientSecret='" + "<HIDDEN>" + '\'' +
             ", redirectUris=" + redirectUris +
+            ", scope=" + scope +
             ", authServerAuthorizationEndpoint='" + authServerAuthorizationEndpoint + '\'' +
             ", authServerTokenEndpoint='" + authServerTokenEndpoint + '\'' +
             ", resourceUrl='" + resourceUrl + '\'' +

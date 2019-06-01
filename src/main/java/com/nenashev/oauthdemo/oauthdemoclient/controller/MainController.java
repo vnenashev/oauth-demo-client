@@ -11,17 +11,21 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.message.BasicNameValuePair;
@@ -36,6 +40,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import static java.util.stream.Collectors.toSet;
 
 @Controller
 @RequestMapping(path = "/")
@@ -82,6 +88,10 @@ public class MainController {
 
     @GetMapping(path = "/authorize")
     public String authorize() {
+        this.accessToken.set(null);
+        this.tokenExpireTimestamp.set(null);
+        this.refreshToken.set(null);
+        this.scope.clear();
         final UriComponentsBuilder authEndpointUriBuilder =
             UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
 
@@ -92,7 +102,7 @@ public class MainController {
         authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
         authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
         authEndpointUriBuilder.queryParam("state", newState);
-        authEndpointUriBuilder.queryParam("scope", String.join(" ", scope));
+        authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
 
         final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
         return "redirect:" + redirectUri.toUriString();
@@ -141,15 +151,26 @@ public class MainController {
                     objectMapper.readValue(responseInputStream, MAP_TYPE_REFERENCE);
                 final String responseAccessToken = (String) responseJson.get("access_token");
                 final String responseRefreshToken = (String) responseJson.get("refresh_token");
+                final String cscope = (String) responseJson.get("scope");
                 final int expireInSeconds = ((Number) responseJson.get("expires_in")).intValue();
                 tokenExpireTimestamp.set(Instant.now().plusSeconds(expireInSeconds));
                 accessToken.set(responseAccessToken);
                 refreshToken.set(responseRefreshToken);
-                logger.info("Got access token {}", responseAccessToken);
+                scope.clear();
+                Optional.ofNullable(cscope)
+                    .filter(StringUtils::hasText)
+                    .map(c -> c.split(" "))
+                    .map(Stream::of)
+                    .map(s -> s.collect(toSet())).ifPresent(scope::addAll);
+
+                logger.info("Got access token {}, scope: {}", responseAccessToken, scope);
+                if (StringUtils.hasText(responseRefreshToken)) {
+                    logger.info("Got refresh token: {}", responseRefreshToken);
+                }
 
                 if (params.containsKey("redirect_to_resource")) {
-                    logger.info("Redirecting to /fetch_resource");
-                    return "redirect:/fetch_resource";
+                    logger.info("Redirecting to /words");
+                    return "redirect:/words";
                 }
 
                 modelMap.addAttribute("accessToken", responseAccessToken);
@@ -168,28 +189,24 @@ public class MainController {
         }
     }
 
-    @GetMapping(path = "/fetch_resource")
-    public String fetchResource(final ModelMap modelMap) {
-        logger.info("Received GET /fetch_resource");
+    @GetMapping(path = "/words")
+    public String words(final ModelMap modelMap) {
+        logger.info("Received GET /words");
+        modelMap.addAttribute("words", "");
+        modelMap.addAttribute("timestamp", 0);
+        modelMap.addAttribute("result", "noget");
+        return "words";
+    }
+
+    @GetMapping(path = "/get_words")
+    public String getWords(final ModelMap modelMap) {
+        logger.info("Received GET /get_words");
+
         final String accessToken = this.accessToken.get();
         if (!StringUtils.hasText(accessToken)) {
             //no access token, redirect to obtain
             logger.info("No access token found, redirecting to authorization server to obtain...");
-            final UriComponentsBuilder authEndpointUriBuilder =
-                UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
-
-            final String newState = generateRandomString(64);
-            state.set(newState);
-
-            authEndpointUriBuilder.queryParam("response_type", "code");
-            authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
-            authEndpointUriBuilder.queryParam("redirect_uri",
-                oauthConfig.getRedirectUris().get(1));
-            authEndpointUriBuilder.queryParam("state", newState);
-            authEndpointUriBuilder.queryParam("scope", String.join(" ", scope));
-
-            final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
-            return "redirect:" + redirectUri.toUriString();
+            return requestAuthorization();
         } else if (tokenExpireTimestamp.get() != null && tokenExpireTimestamp.get().isBefore(Instant.now())) {
             this.accessToken.set(null);
             this.tokenExpireTimestamp.set(null);
@@ -206,30 +223,149 @@ public class MainController {
             if (responseStatus >= 200 && responseStatus < 300) {
                 final Map<String, Object> responseJson =
                     objectMapper.readValue(responseInputStream, MAP_TYPE_REFERENCE);
-                final String printedResource = objectMapper
-                    .writerWithDefaultPrettyPrinter()
-                    .writeValueAsString(responseJson);
-                modelMap.addAttribute("resource", printedResource);
-                return "data";
+                modelMap.addAttribute("words", responseJson.get("words"));
+                modelMap.addAttribute("timestamp", responseJson.get("timestamp"));
+                modelMap.addAttribute("result", "get");
+                return "words";
             } else {
                 this.accessToken.set(null);
+                this.tokenExpireTimestamp.set(null);
                 if (this.refreshToken.get() != null) {
                     return requestRefreshToken(modelMap);
                 } else {
-                    modelMap.addAttribute("error", "Unable to fetch resource," +
-                        " server response: " + responseStatus);
-                    return "error";
+                    modelMap.addAttribute("words", "");
+                    modelMap.addAttribute("timestamp", 0);
+                    modelMap.addAttribute("result", "noget");
+                    return "words";
                 }
             }
         } catch (final IOException e) {
             this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
             logger.error("Exception caught:", e);
             modelMap.addAttribute("error", e.getMessage());
             return "error";
         }
     }
 
+    @GetMapping(path = "/add_word")
+    public String addWord(final ModelMap modelMap,
+                          final @RequestParam("word") String word) {
+        logger.info("Received GET /add_word");
+
+        final String accessToken = this.accessToken.get();
+        if (!StringUtils.hasText(accessToken)) {
+            //no access token, redirect to obtain
+            logger.info("No access token found, redirecting to authorization server to obtain...");
+            return requestAuthorization();
+        } else if (tokenExpireTimestamp.get() != null && tokenExpireTimestamp.get().isBefore(Instant.now())) {
+            this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
+            return requestRefreshToken(modelMap);
+        }
+        logger.info("Making request with access token {}", accessToken);
+
+        final HttpPost resourceRequest = new HttpPost(oauthConfig.getResourceUrl());
+        resourceRequest.setHeader("Authorization", "Bearer " + accessToken);
+        resourceRequest.setEntity(new UrlEncodedFormEntity(
+            Collections.singletonList(new BasicNameValuePair("word", word)),
+            StandardCharsets.UTF_8));
+
+        try (final CloseableHttpResponse response = httpClient.execute(resourceRequest)) {
+            final int responseStatus = response.getStatusLine().getStatusCode();
+            if (responseStatus >= 200 && responseStatus < 300) {
+                modelMap.addAttribute("words", "");
+                modelMap.addAttribute("timestamp", 0);
+                modelMap.addAttribute("result", "add");
+                return "words";
+            } else {
+                this.accessToken.set(null);
+                this.tokenExpireTimestamp.set(null);
+                if (this.refreshToken.get() != null) {
+                    return requestRefreshToken(modelMap);
+                } else {
+                    modelMap.addAttribute("words", "");
+                    modelMap.addAttribute("timestamp", 0);
+                    modelMap.addAttribute("result", "noadd");
+                    return "words";
+                }
+            }
+        } catch (final IOException e) {
+            this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
+            logger.error("Exception caught:", e);
+            modelMap.addAttribute("error", e.getMessage());
+            return "error";
+        }
+    }
+
+    @GetMapping(path = "/delete_word")
+    public String deleteWord(final ModelMap modelMap) {
+        logger.info("Received GET /delete_word");
+
+        final String accessToken = this.accessToken.get();
+        if (!StringUtils.hasText(accessToken)) {
+            //no access token, redirect to obtain
+            logger.info("No access token found, redirecting to authorization server to obtain...");
+            return requestAuthorization();
+        } else if (tokenExpireTimestamp.get() != null && tokenExpireTimestamp.get().isBefore(Instant.now())) {
+            this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
+            return requestRefreshToken(modelMap);
+        }
+        logger.info("Making request with access token {}", accessToken);
+
+        final HttpDelete resourceRequest = new HttpDelete(oauthConfig.getResourceUrl());
+        resourceRequest.setHeader("Authorization", "Bearer " + accessToken);
+
+        try (final CloseableHttpResponse response = httpClient.execute(resourceRequest)) {
+            final int responseStatus = response.getStatusLine().getStatusCode();
+            if (responseStatus >= 200 && responseStatus < 300) {
+                modelMap.addAttribute("words", "");
+                modelMap.addAttribute("timestamp", 0);
+                modelMap.addAttribute("result", "rm");
+                return "words";
+            } else {
+                this.accessToken.set(null);
+                this.tokenExpireTimestamp.set(null);
+                if (this.refreshToken.get() != null) {
+                    return requestRefreshToken(modelMap);
+                } else {
+                    modelMap.addAttribute("words", "");
+                    modelMap.addAttribute("timestamp", 0);
+                    modelMap.addAttribute("result", "norm");
+                    return "words";
+                }
+            }
+        } catch (final IOException e) {
+            this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
+            logger.error("Exception caught:", e);
+            modelMap.addAttribute("error", e.getMessage());
+            return "error";
+        }
+    }
+
+    private String requestAuthorization() {
+        final UriComponentsBuilder authEndpointUriBuilder =
+            UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
+
+        final String newState = generateRandomString(64);
+        state.set(newState);
+
+        authEndpointUriBuilder.queryParam("response_type", "code");
+        authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
+        authEndpointUriBuilder.queryParam("redirect_uri",
+            oauthConfig.getRedirectUris().get(1));
+        authEndpointUriBuilder.queryParam("state", newState);
+        authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
+
+        final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
+        return "redirect:" + redirectUri.toUriString();
+    }
+
     private String requestRefreshToken(final ModelMap modelMap) {
+        logger.info("Refreshing access token...");
         final HttpPost tokenRequest = new HttpPost(oauthConfig.getAuthServerTokenEndpoint());
         tokenRequest.setHeader("Content-Type", MediaType.APPLICATION_FORM_URLENCODED_VALUE);
         final byte[] authBytes = (oauthConfig.getClientId() + ":" + oauthConfig.getClientSecret())
@@ -252,15 +388,17 @@ public class MainController {
                 final int expireInSeconds = ((Number) responseJson.get("expires_in")).intValue();
                 tokenExpireTimestamp.set(Instant.now().plusSeconds(expireInSeconds));
                 accessToken.set(responseAccessToken);
-                this.refreshToken.set(responseRefreshToken);
+                if (StringUtils.hasText(responseRefreshToken)) {
+                    this.refreshToken.set(responseRefreshToken);
+                    logger.info("Got refresh token: {}", responseRefreshToken);
+                }
                 logger.info("Got access token {}", responseAccessToken);
 
                 return "redirect:/fetch_resource";
             } else {
-                modelMap.addAttribute("error",
-                    "No refresh token, asking user to get a new access token");
+                logger.warn("Cannot get access token using refresh token, starting new authorization...");
                 this.refreshToken.set(null);
-                return "error";
+                return "redirect:/authorize";
             }
         } catch (final IOException e) {
             logger.error("Exception caught:", e);
