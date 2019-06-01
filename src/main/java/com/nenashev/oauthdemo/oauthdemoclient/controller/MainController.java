@@ -394,7 +394,7 @@ public class MainController {
                 }
                 logger.info("Got access token {}", responseAccessToken);
 
-                return "redirect:/fetch_resource";
+                return "redirect:/words";
             } else {
                 logger.warn("Cannot get access token using refresh token, starting new authorization...");
                 this.refreshToken.set(null);

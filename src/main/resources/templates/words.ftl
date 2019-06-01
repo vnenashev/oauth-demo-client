@@ -43,7 +43,7 @@
                 <h3>Read the current value</h3>
                 <#if result == 'get' ><p><span class="label label-success">Success</span></p></#if>
                 <#if result == 'noget' ><p><span class="label label-danger">Failure</span></p></#if>
-                <p><#if words?has_content >Words: ${words}<#else></#if></p>
+                <p><#if words >Words: ${words}<#else></#if></p>
                 <p><#if timestamp?? >Timestamp: ${timestamp}<#else></#if></p>
                 <a class="btn btn-info" href="/get_words">GET current value</a>
             </div>
