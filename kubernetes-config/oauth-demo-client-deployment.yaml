@@ -15,6 +15,16 @@ spec:
       labels:
         app: oauth-demo-client
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: "kubernetes.io/hostname"
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - oauth-demo-db
       containers:
         - name: oauth-demo-client
           image: vnenashev/oauth-demo-client:0.3.3
