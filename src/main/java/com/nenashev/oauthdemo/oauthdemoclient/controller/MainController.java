@@ -21,6 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import javax.servlet.http.HttpServletRequest;
+
 import org.apache.http.HttpEntity;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
@@ -42,6 +44,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import io.jaegertracing.Configuration;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.Tracer;
 import static java.util.stream.Collectors.toSet;
 
 @Controller
@@ -67,10 +73,13 @@ public class MainController {
     private final AtomicReference<String> refreshToken = new AtomicReference<>(null);
     private final AtomicReference<Instant> tokenExpireTimestamp = new AtomicReference<>(null);
 
+    private final Tracer tracer = Configuration.fromEnv().getTracer();
+
     public MainController(final OauthConfig oauthConfig,
                           final SecureRandom secureRandom,
                           final CloseableHttpClient httpClient,
-                          final ObjectMapper objectMapper) {
+                          final ObjectMapper objectMapper
+                         ) {
         this.oauthConfig = oauthConfig;
         this.secureRandom = secureRandom;
         this.httpClient = httpClient;
@@ -88,30 +97,36 @@ public class MainController {
     }
 
     @GetMapping(path = "/authorize")
-    public String authorize() {
-        this.accessToken.set(null);
-        this.tokenExpireTimestamp.set(null);
-        this.refreshToken.set(null);
-        this.scope.clear();
-        final UriComponentsBuilder authEndpointUriBuilder =
-            UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
+    public String authorize(final HttpServletRequest request) {
+        final Span span = tracer.buildSpan("authorize")
+                                .withTag("remote_addr", request.getRemoteAddr())
+                                .start();
+        try (final Scope scope = tracer.activateSpan(span)) {
+            span.log("Received /authorize request");
+            this.accessToken.set(null);
+            this.tokenExpireTimestamp.set(null);
+            this.refreshToken.set(null);
+            this.scope.clear();
+            final UriComponentsBuilder authEndpointUriBuilder =
+                UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
 
-        final String newState = generateRandomString(64);
-        state.set(newState);
+            final String newState = generateRandomString(64);
+            state.set(newState);
 
-        authEndpointUriBuilder.queryParam("response_type", "code");
-        authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
-        authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
-        authEndpointUriBuilder.queryParam("state", newState);
-        authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
-
-        final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
-        return "redirect:" + redirectUri.toUriString();
+            authEndpointUriBuilder.queryParam("response_type", "code");
+            authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
+            authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
+            authEndpointUriBuilder.queryParam("state", newState);
+            authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
+            final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
+            return "redirect:" + redirectUri.toUriString();
+        }
     }
 
     @GetMapping(path = "/callback")
     public String callback(final @RequestParam Map<String, String> params,
-                           final ModelMap modelMap) {
+                           final ModelMap modelMap
+                          ) {
         if (params.containsKey("error")) {
             modelMap.addAttribute("error", params.get("error"));
             return "error";
@@ -135,17 +150,22 @@ public class MainController {
         httpFormParams.add(new BasicNameValuePair("grant_type", "authorization_code"));
         httpFormParams.add(new BasicNameValuePair("code", params.get("code")));
         if (!params.containsKey("redirect_to_resource")) {
-            httpFormParams.add(new BasicNameValuePair("redirect_uri",
-                oauthConfig.getRedirectUris().get(0)));
+            httpFormParams.add(new BasicNameValuePair(
+                "redirect_uri",
+                oauthConfig.getRedirectUris().get(0)
+            ));
         } else {
-            httpFormParams.add(new BasicNameValuePair("redirect_uri",
-                oauthConfig.getRedirectUris().get(1)));
+            httpFormParams.add(new BasicNameValuePair(
+                "redirect_uri",
+                oauthConfig.getRedirectUris().get(1)
+            ));
         }
         final HttpEntity httpEntity = new UrlEncodedFormEntity(httpFormParams, StandardCharsets.UTF_8);
         tokenRequest.setEntity(httpEntity);
 
         try (final CloseableHttpResponse response = httpClient.execute(tokenRequest);
-             final InputStream responseInputStream = response.getEntity().getContent()) {
+             final InputStream responseInputStream = response.getEntity().getContent()
+        ) {
             final int responseStatus = response.getStatusLine().getStatusCode();
             if (responseStatus >= 200 && responseStatus < 300) {
                 final Map<String, Object> responseJson =
@@ -159,10 +179,10 @@ public class MainController {
                 refreshToken.set(responseRefreshToken);
                 scope.clear();
                 Optional.ofNullable(cscope)
-                    .filter(StringUtils::hasText)
-                    .map(c -> c.split(" "))
-                    .map(Stream::of)
-                    .map(s -> s.collect(toSet())).ifPresent(scope::addAll);
+                        .filter(StringUtils::hasText)
+                        .map(c -> c.split(" "))
+                        .map(Stream::of)
+                        .map(s -> s.collect(toSet())).ifPresent(scope::addAll);
 
                 logger.info("Got access token {}, scope: {}", responseAccessToken, scope);
                 if (StringUtils.hasText(responseRefreshToken)) {
@@ -180,7 +200,7 @@ public class MainController {
                 return "index";
             } else {
                 modelMap.addAttribute("error", "Unable to fetch access token," +
-                    " server response: " + responseStatus);
+                                               " server response: " + responseStatus);
                 return "error";
             }
         } catch (final IOException e) {
@@ -219,7 +239,8 @@ public class MainController {
         resourceRequest.setHeader("Authorization", "Bearer " + accessToken);
 
         try (final CloseableHttpResponse response = httpClient.execute(resourceRequest);
-             final InputStream responseInputStream = response.getEntity().getContent()) {
+             final InputStream responseInputStream = response.getEntity().getContent()
+        ) {
             final int responseStatus = response.getStatusLine().getStatusCode();
             if (responseStatus >= 200 && responseStatus < 300) {
                 final Map<String, Object> responseJson =
@@ -251,7 +272,8 @@ public class MainController {
 
     @GetMapping(path = "/add_word")
     public String addWord(final ModelMap modelMap,
-                          final @RequestParam("word") String word) {
+                          final @RequestParam("word") String word
+                         ) {
         logger.info("Received GET /add_word");
 
         final String accessToken = this.accessToken.get();
@@ -270,7 +292,8 @@ public class MainController {
         resourceRequest.setHeader("Authorization", "Bearer " + accessToken);
         resourceRequest.setEntity(new UrlEncodedFormEntity(
             Collections.singletonList(new BasicNameValuePair("word", word)),
-            StandardCharsets.UTF_8));
+            StandardCharsets.UTF_8
+        ));
 
         try (final CloseableHttpResponse response = httpClient.execute(resourceRequest)) {
             final int responseStatus = response.getStatusLine().getStatusCode();
@@ -356,8 +379,10 @@ public class MainController {
 
         authEndpointUriBuilder.queryParam("response_type", "code");
         authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
-        authEndpointUriBuilder.queryParam("redirect_uri",
-            oauthConfig.getRedirectUris().get(1));
+        authEndpointUriBuilder.queryParam(
+            "redirect_uri",
+            oauthConfig.getRedirectUris().get(1)
+                                         );
         authEndpointUriBuilder.queryParam("state", newState);
         authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
 
@@ -379,7 +404,8 @@ public class MainController {
         tokenRequest.setEntity(httpEntity);
 
         try (final CloseableHttpResponse response = httpClient.execute(tokenRequest);
-             final InputStream responseInputStream = response.getEntity().getContent()) {
+             final InputStream responseInputStream = response.getEntity().getContent()
+        ) {
             final int responseStatus = response.getStatusLine().getStatusCode();
             if (responseStatus >= 200 && responseStatus < 300) {
                 final Map<String, Object> responseJson =
