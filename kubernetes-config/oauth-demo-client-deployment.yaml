@@ -30,7 +30,7 @@ spec:
                       - oauth-demo-db
       containers:
         - name: oauth-demo-client
-          image: vnenashev/oauth-demo-client:0.3.5
+          image: vnenashev/oauth-demo-client:0.3.6
           ports:
             - containerPort: 8081
               protocol: TCP
@@ -41,3 +41,5 @@ spec:
               value: const
             - name: JAEGER_SAMPLER_PARAM
               value: "1"
+            - name: JAEGER_REPORTER_LOG_SPANS
+              value: "true"

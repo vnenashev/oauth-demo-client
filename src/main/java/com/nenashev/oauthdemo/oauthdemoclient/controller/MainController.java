@@ -45,7 +45,6 @@ import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import io.jaegertracing.Configuration;
-import io.opentracing.Scope;
 import io.opentracing.Span;
 import io.opentracing.Tracer;
 import static java.util.stream.Collectors.toSet;
@@ -101,26 +100,25 @@ public class MainController {
         final Span span = tracer.buildSpan("authorize")
                                 .withTag("remote_addr", request.getRemoteAddr())
                                 .start();
-        try (final Scope scope = tracer.activateSpan(span)) {
-            span.log("Received /authorize request");
-            this.accessToken.set(null);
-            this.tokenExpireTimestamp.set(null);
-            this.refreshToken.set(null);
-            this.scope.clear();
-            final UriComponentsBuilder authEndpointUriBuilder =
-                UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
+        span.log("Received /authorize request");
+        this.accessToken.set(null);
+        this.tokenExpireTimestamp.set(null);
+        this.refreshToken.set(null);
+        this.scope.clear();
+        final UriComponentsBuilder authEndpointUriBuilder =
+            UriComponentsBuilder.fromUriString(oauthConfig.getAuthServerAuthorizationEndpoint());
 
-            final String newState = generateRandomString(64);
-            state.set(newState);
+        final String newState = generateRandomString(64);
+        state.set(newState);
 
-            authEndpointUriBuilder.queryParam("response_type", "code");
-            authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
-            authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
-            authEndpointUriBuilder.queryParam("state", newState);
-            authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
-            final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
-            return "redirect:" + redirectUri.toUriString();
-        }
+        authEndpointUriBuilder.queryParam("response_type", "code");
+        authEndpointUriBuilder.queryParam("client_id", oauthConfig.getClientId());
+        authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
+        authEndpointUriBuilder.queryParam("state", newState);
+        authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
+        final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
+        span.finish();
+        return "redirect:" + redirectUri.toUriString();
     }
 
     @GetMapping(path = "/callback")
