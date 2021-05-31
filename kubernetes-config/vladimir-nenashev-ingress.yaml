@@ -1,35 +1,25 @@
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: vladimir-nenashev-ingress
+  name: oauth-demo-client
+  namespace: observability
   annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/tags: Environment=dev,Team=test
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-central-1:528427420073:certificate/8565a745-fda7-4c6e-9beb-176e4498ba97
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
-    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/issuer: "letsencrypt-prod"
+
 spec:
+  tls:
+    - hosts:
+        - oauth-demo-client.ipnvu.net
+      secretName: quickstart-example-tls
   rules:
-    - host: oauth-demo-client.vladimir-nenashev.net
+    - host: oauth-demo-client.ipnvu.net
       http:
         paths:
-          - path: /*
+          - path: /
+            pathType: Prefix
             backend:
-              serviceName: ssl-redirect
-              servicePort: use-annotation
-          - path: /*
-            backend:
-              serviceName: oauth-demo-client
-              servicePort: 8081
-    - host: oauth-demo-auth-server.vladimir-nenashev.net
-      http:
-        paths:
-          - path: /*
-            backend:
-              serviceName: ssl-redirect
-              servicePort: use-annotation
-          - path: /*
-            backend:
-              serviceName: oauth-demo-auth-server
-              servicePort: 8081
+              service:
+                name: oauth-demo-client
+                port:
+                  number: 8081
