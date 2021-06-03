@@ -49,8 +49,8 @@ import io.jaegertracing.Configuration;
 import io.opentracing.Span;
 import io.opentracing.Tracer;
 import io.opentracing.propagation.Format;
+import io.opentracing.propagation.TextMap;
 import io.opentracing.propagation.TextMapAdapter;
-import io.opentracing.propagation.TextMapInject;
 import static java.util.stream.Collectors.toSet;
 
 @Controller
@@ -121,8 +121,8 @@ public class MainController {
         authEndpointUriBuilder.queryParam("state", newState);
         authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
         final Map<String, String> traceParams = new HashMap<>();
-        final TextMapInject textMap = new TextMapAdapter(traceParams);
-        tracer.inject(span.context(), Format.Builtin.TEXT_MAP_INJECT, textMap);
+        final TextMap textMap = new TextMapAdapter(traceParams);
+        tracer.inject(span.context(), Format.Builtin.TEXT_MAP, textMap);
         traceParams.forEach(authEndpointUriBuilder::queryParam);
         final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
         span.finish();
