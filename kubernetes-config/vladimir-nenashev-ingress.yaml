@@ -10,6 +10,7 @@ spec:
   tls:
     - hosts:
         - oauth-demo-client.ipnvu.net
+        - oauth-demo-auth-server.ipnvu.net
         - jaeger-ui.ipnvu.net
       secretName: oauth-demo-client-tls-cert
   rules:
@@ -21,6 +22,16 @@ spec:
             backend:
               service:
                 name: oauth-demo-client
+                port:
+                  number: 8081
+    - host: oauth-demo-auth-server.ipnvu.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth-demo-auth-server
                 port:
                   number: 8081
     - host: jaeger-ui.ipnvu.net
