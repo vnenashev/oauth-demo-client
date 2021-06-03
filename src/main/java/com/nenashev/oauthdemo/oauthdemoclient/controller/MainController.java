@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,6 +48,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 import io.jaegertracing.Configuration;
 import io.opentracing.Span;
 import io.opentracing.Tracer;
+import io.opentracing.propagation.Format;
+import io.opentracing.propagation.TextMapAdapter;
+import io.opentracing.propagation.TextMapInject;
 import static java.util.stream.Collectors.toSet;
 
 @Controller
@@ -116,6 +120,10 @@ public class MainController {
         authEndpointUriBuilder.queryParam("redirect_uri", oauthConfig.getRedirectUris().get(0));
         authEndpointUriBuilder.queryParam("state", newState);
         authEndpointUriBuilder.queryParam("scope", String.join(" ", oauthConfig.getScope()));
+        final Map<String, String> traceParams = new HashMap<>();
+        final TextMapInject textMap = new TextMapAdapter(traceParams);
+        tracer.inject(span.context(), Format.Builtin.TEXT_MAP_INJECT, textMap);
+        traceParams.forEach(authEndpointUriBuilder::queryParam);
         final UriComponents redirectUri = authEndpointUriBuilder.encode().build();
         span.finish();
         return "redirect:" + redirectUri.toUriString();
