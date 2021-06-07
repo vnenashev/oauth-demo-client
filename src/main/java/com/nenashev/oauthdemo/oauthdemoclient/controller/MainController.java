@@ -47,6 +47,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import io.jaegertracing.Configuration;
 import io.opentracing.Span;
+import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
 import io.opentracing.propagation.Format;
 import io.opentracing.propagation.TextMap;
@@ -130,11 +131,28 @@ public class MainController {
     }
 
     @GetMapping(path = "/callback")
-    public String callback(final @RequestParam Map<String, String> params,
+    public String callback(@RequestParam final Map<String, String> params,
                            final ModelMap modelMap
                           ) {
+        final SpanContext parentSpan = tracer.extract(Format.Builtin.TEXT_MAP, new TextMapAdapter(params));
+
+        Tracer.SpanBuilder spanBuilder;
+        try {
+            if (parentSpan == null) {
+                spanBuilder = tracer.buildSpan("client-callback");
+            } else {
+                spanBuilder = tracer.buildSpan("client-callback").asChildOf(parentSpan);
+            }
+        } catch (final IllegalArgumentException e) {
+            spanBuilder = tracer.buildSpan("client-callback");
+        }
+        final Span span = spanBuilder.start();
+        span.log("Received GET /callback");
+        span.log(params);
+
         if (params.containsKey("error")) {
             modelMap.addAttribute("error", params.get("error"));
+            span.finish();
             return "error";
         }
 
@@ -144,6 +162,8 @@ public class MainController {
         if (!Objects.equals(expectedState, reqState)) {
             logger.error("State DOES NOT MATCH: expected {}, got {} ", expectedState, reqState);
             modelMap.addAttribute("error", "State value did not match");
+            span.log("Invalid state");
+            span.finish();
             return "error";
         }
 
@@ -155,19 +175,24 @@ public class MainController {
         final List<NameValuePair> httpFormParams = new ArrayList<>(3);
         httpFormParams.add(new BasicNameValuePair("grant_type", "authorization_code"));
         httpFormParams.add(new BasicNameValuePair("code", params.get("code")));
-        if (!params.containsKey("redirect_to_resource")) {
-            httpFormParams.add(new BasicNameValuePair(
-                "redirect_uri",
-                oauthConfig.getRedirectUris().get(0)
-            ));
-        } else {
+        if (params.containsKey("redirect_to_resource")) {
             httpFormParams.add(new BasicNameValuePair(
                 "redirect_uri",
                 oauthConfig.getRedirectUris().get(1)
             ));
+        } else {
+            httpFormParams.add(new BasicNameValuePair(
+                "redirect_uri",
+                oauthConfig.getRedirectUris().get(0)
+            ));
         }
+
         final HttpEntity httpEntity = new UrlEncodedFormEntity(httpFormParams, StandardCharsets.UTF_8);
         tokenRequest.setEntity(httpEntity);
+        final Map<String, String> traceParams = new HashMap<>();
+        final TextMap textMap = new TextMapAdapter(traceParams);
+        tracer.inject(parentSpan, Format.Builtin.TEXT_MAP, textMap);
+        traceParams.forEach(tokenRequest::addHeader);
 
         try (final CloseableHttpResponse response = httpClient.execute(tokenRequest);
              final InputStream responseInputStream = response.getEntity().getContent()
@@ -197,12 +222,14 @@ public class MainController {
 
                 if (params.containsKey("redirect_to_resource")) {
                     logger.info("Redirecting to /words");
+                    span.finish();
                     return "redirect:/words";
                 }
 
                 modelMap.addAttribute("accessToken", responseAccessToken);
                 modelMap.addAttribute("scope", String.join(" ", scope));
                 modelMap.addAttribute("refreshToken", refreshToken.get());
+                span.finish();
                 return "index";
             } else {
                 modelMap.addAttribute("error", "Unable to fetch access token," +
@@ -212,6 +239,7 @@ public class MainController {
         } catch (final IOException e) {
             logger.error("Exception caught:", e);
             modelMap.addAttribute("error", e.getMessage());
+            span.finish();
             return "error";
         }
     }
